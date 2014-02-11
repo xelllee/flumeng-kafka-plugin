@@ -23,8 +23,11 @@ package org.apache.flume.plugins;
  * Time: PM 4:32
  */
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 
+import com.google.gson.Gson;
 import kafka.javaapi.producer.Producer;
 import kafka.producer.KeyedMessage;
 import kafka.producer.ProducerConfig;
@@ -69,9 +72,8 @@ public class KafkaSink extends AbstractSink implements Configurable {
 
     /**
      * Configure void.
-     * 
-     * @param context
-     *            the context
+     *
+     * @param context the context
      */
     @Override
     public void configure(Context context) {
@@ -97,10 +99,9 @@ public class KafkaSink extends AbstractSink implements Configurable {
 
     /**
      * Process status.
-     * 
+     *
      * @return the status
-     * @throws EventDeliveryException
-     *             the event delivery exception
+     * @throws EventDeliveryException the event delivery exception
      */
     @Override
     public Status process() throws EventDeliveryException {
@@ -122,7 +123,27 @@ public class KafkaSink extends AbstractSink implements Configurable {
                     (String) this.parameters.get(KafkaFlumeConstans.CUSTOME_TOPIC_KEY_NAME),
                     "custom.topic.name is required");
 
-            String eventData = new String(event.getBody(), encoding);
+            boolean formatInJson = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_FORMAT_IN_JSON), "false"));
+
+            String body = new String(event.getBody(), encoding);
+            String eventData;
+
+            if (formatInJson) {
+                Gson gson = new Gson();
+
+                Map<String, String> headers = event.getHeaders();
+                Map<String, String> event_map = new HashMap<String, String>();
+
+                event_map.put("body", body);
+
+                for (Map.Entry<String, String> entry : headers.entrySet()) {
+                    event_map.put(entry.getKey(), entry.getValue());
+                }
+                eventData = gson.toJson(event);
+            } else {
+                eventData = body;
+            }
+
 
             KeyedMessage<String, String> data;
 
