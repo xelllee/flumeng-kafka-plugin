@@ -139,7 +139,7 @@ public class KafkaSink extends AbstractSink implements Configurable {
                 for (Map.Entry<String, String> entry : headers.entrySet()) {
                     event_map.put(entry.getKey(), entry.getValue());
                 }
-                eventData = gson.toJson(event);
+                eventData = gson.toJson(event_map);
             } else {
                 eventData = body;
             }
