@@ -23,9 +23,8 @@ package org.apache.flume.plugins;
  * Time: PM 4:32
  */
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
+import java.io.UnsupportedEncodingException;
+import java.util.*;
 
 import com.google.gson.Gson;
 import kafka.javaapi.producer.Producer;
@@ -36,12 +35,14 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.flume.*;
 import org.apache.flume.conf.Configurable;
 import org.apache.flume.event.EventHelper;
+import org.apache.flume.instrumentation.SinkCounter;
 import org.apache.flume.sink.AbstractSink;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+
 
 /**
  * kafka sink.
@@ -70,6 +71,18 @@ public class KafkaSink extends AbstractSink implements Configurable {
 
     // - [ interface methods ] ------------------------------------
 
+    private SinkCounter sinkCounter;
+
+
+    private String partitionKey;
+    private String encoding;
+    private String topic;
+
+    private boolean formatInJson;
+    private boolean logEvent;
+
+    private int batchSize;
+
     /**
      * Configure void.
      *
@@ -85,6 +98,20 @@ public class KafkaSink extends AbstractSink implements Configurable {
             String value = props.get(key);
             this.parameters.put(key, value);
         }
+        sinkCounter = new SinkCounter(this.getName());
+
+        partitionKey = (String) parameters.get(KafkaFlumeConstans.PARTITION_KEY_NAME);
+        encoding = StringUtils.defaultIfEmpty(
+                (String) this.parameters.get(KafkaFlumeConstans.ENCODING_KEY_NAME),
+                KafkaFlumeConstans.DEFAULT_ENCODING);
+        topic = Preconditions.checkNotNull(
+                (String) this.parameters.get(KafkaFlumeConstans.CUSTOME_TOPIC_KEY_NAME),
+                "custom.topic.name is required");
+
+        formatInJson = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_FORMAT_IN_JSON), "false"));
+        logEvent = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.LOG_EVENT), "false"));
+        batchSize = Integer.valueOf(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.FLUME_BATCH_SIZE), "200"));
+
     }
 
     /**
@@ -93,8 +120,15 @@ public class KafkaSink extends AbstractSink implements Configurable {
     @Override
     public synchronized void start() {
         super.start();
-        ProducerConfig config = new ProducerConfig(this.parameters);
-        this.producer = new Producer<String, String>(config);
+
+        try {
+            ProducerConfig config = new ProducerConfig(this.parameters);
+            this.producer = new Producer<String, String>(config);
+            sinkCounter.incrementConnectionCreatedCount();
+            sinkCounter.start();
+        } catch (Exception e) {
+            sinkCounter.incrementConnectionFailedCount();
+        }
     }
 
     /**
@@ -105,62 +139,43 @@ public class KafkaSink extends AbstractSink implements Configurable {
      */
     @Override
     public Status process() throws EventDeliveryException {
-        Status status = null;
-
+        Status status = Status.READY;
         // Start transaction
         Channel ch = getChannel();
         Transaction txn = ch.getTransaction();
         txn.begin();
         try {
-            // This try clause includes whatever Channel operations you want to do
-            Event event = ch.take();
 
-            String partitionKey = (String) parameters.get(KafkaFlumeConstans.PARTITION_KEY_NAME);
-            String encoding = StringUtils.defaultIfEmpty(
-                    (String) this.parameters.get(KafkaFlumeConstans.ENCODING_KEY_NAME),
-                    KafkaFlumeConstans.DEFAULT_ENCODING);
-            String topic = Preconditions.checkNotNull(
-                    (String) this.parameters.get(KafkaFlumeConstans.CUSTOME_TOPIC_KEY_NAME),
-                    "custom.topic.name is required");
 
-            boolean formatInJson = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_FORMAT_IN_JSON), "false"));
+            List<KeyedMessage<String, String>> msgList = new ArrayList<KeyedMessage<String, String>>();
 
-            String body = new String(event.getBody(), encoding);
-            String eventData;
 
-            if (formatInJson) {
-                Gson gson = new Gson();
+            int i = 0;
+            for (; i < batchSize; i++) {
+                // This try clause includes whatever Channel operations you want to do
+                Event event = ch.take();
 
-                Map<String, String> headers = event.getHeaders();
-                Map<String, String> event_map = new HashMap<String, String>();
-
-                event_map.put("body", body);
-
-                for (Map.Entry<String, String> entry : headers.entrySet()) {
-                    event_map.put(entry.getKey(), entry.getValue());
+                if (event == null) {
+                    status = Status.BACKOFF;
+                    if (i == 0) {
+                        sinkCounter.incrementBatchEmptyCount();
+                    } else {
+                        sinkCounter.incrementBatchUnderflowCount();
+                    }
+                    break;
+                } else {
+                    KeyedMessage<String, String> data = formatEvent(event);
+                    msgList.add(data);
                 }
-                eventData = gson.toJson(event_map);
-            } else {
-                eventData = body;
             }
 
-
-            KeyedMessage<String, String> data;
-
-            // if partition key does'nt exist
-            if (StringUtils.isEmpty(partitionKey)) {
-                data = new KeyedMessage<String, String>(topic, eventData);
-            } else {
-                data = new KeyedMessage<String, String>(topic, partitionKey, eventData);
+            if (i == batchSize) {
+                sinkCounter.incrementBatchCompleteCount();
             }
+            sinkCounter.addToEventDrainAttemptCount(i);
+            produceAndCommit(msgList, txn);
 
-            if (LOGGER.isInfoEnabled()) {
-                LOGGER.info("Send Message to Kafka : [" + eventData + "] -- [" + EventHelper.dumpEvent(event) + "]");
-            }
 
-            producer.send(data);
-            txn.commit();
-            status = Status.READY;
         } catch (Throwable t) {
             txn.rollback();
             status = Status.BACKOFF;
@@ -180,12 +195,59 @@ public class KafkaSink extends AbstractSink implements Configurable {
      */
     @Override
     public void stop() {
-        producer.close();
+        try {
+            producer.close();
+            sinkCounter.stop();
+        } catch (Exception e) {
+            sinkCounter.incrementConnectionFailedCount();
+        }
+
+
     }
-    // - [ protected methods ] --------------------------------------
-    // - [ public methods ] -----------------------------------------
-    // - [ private methods ] ----------------------------------------
-    // - [ static methods ] -----------------------------------------
-    // - [ getter/setter methods ] ----------------------------------
-    // - [ main methods ] -------------------------------------------
+
+    private KeyedMessage<String, String> formatEvent(Event event) throws UnsupportedEncodingException {
+        String eventData;
+        KeyedMessage<String, String> data;
+
+        String body = new String(event.getBody(), encoding);
+
+        if (formatInJson) {
+            Gson gson = new Gson();
+
+            Map<String, String> headers = event.getHeaders();
+            Map<String, String> event_map = new HashMap<String, String>();
+
+            event_map.put("body", body);
+
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                event_map.put(entry.getKey(), entry.getValue());
+            }
+            eventData = gson.toJson(event_map);
+        } else {
+            eventData = body;
+        }
+
+        // if partition key does'nt exist
+        if (StringUtils.isEmpty(partitionKey)) {
+            data = new KeyedMessage<String, String>(topic, eventData);
+        } else {
+            data = new KeyedMessage<String, String>(topic, partitionKey, eventData);
+        }
+
+        if (logEvent) {
+            LOGGER.info("Send Message to Kafka : [" + eventData + "] -- [" + EventHelper.dumpEvent(event) + "]");
+        }
+        return data;
+    }
+
+    private void produceAndCommit(final List<KeyedMessage<String, String>> msgList, Transaction txn) {
+
+        for (KeyedMessage<String, String> msg : msgList) {
+            producer.send(msg);
+        }
+        txn.commit();
+        sinkCounter.addToEventDrainSuccessCount(msgList.size());
+
+    }
+
 }

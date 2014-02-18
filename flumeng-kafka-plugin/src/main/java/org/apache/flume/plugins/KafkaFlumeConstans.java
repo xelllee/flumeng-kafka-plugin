@@ -48,4 +48,8 @@ public class KafkaFlumeConstans {
 
     public static final String CUSTOME_FORMAT_IN_JSON = "custome.format.in.json";
 
+
+    public static final String LOG_EVENT = "custom.log.event";
+
+    public static final String FLUME_BATCH_SIZE = "custom.flume.batch.size";
 }
