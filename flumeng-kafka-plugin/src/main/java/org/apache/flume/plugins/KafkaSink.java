@@ -104,7 +104,7 @@ public class KafkaSink extends AbstractSink implements Configurable {
         topic = Preconditions.checkNotNull((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_TOPIC_KEY_NAME), "custom.topic.name is required");
         formatInJson = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_FORMAT_IN_JSON), "false"));
         logEvent = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.LOG_EVENT), "false"));
-        batchSize = Integer.valueOf(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.FLUME_BATCH_SIZE), "200"));
+        batchSize = Integer.valueOf(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.FLUME_BATCH_SIZE), "100"));
 
 
     }
@@ -141,8 +141,6 @@ public class KafkaSink extends AbstractSink implements Configurable {
         Transaction txn = ch.getTransaction();
         txn.begin();
         try {
-
-
             List<KeyedMessage<String, String>> msgList = new ArrayList<KeyedMessage<String, String>>();
 
             int i = 0;
