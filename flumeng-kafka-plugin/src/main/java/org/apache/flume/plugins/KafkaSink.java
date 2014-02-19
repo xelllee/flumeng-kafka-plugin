@@ -72,8 +72,6 @@ public class KafkaSink extends AbstractSink implements Configurable {
     // - [ interface methods ] ------------------------------------
 
     private SinkCounter sinkCounter;
-
-
     private String partitionKey;
     private String encoding;
     private String topic;
@@ -98,16 +96,12 @@ public class KafkaSink extends AbstractSink implements Configurable {
             String value = props.get(key);
             this.parameters.put(key, value);
         }
+
         sinkCounter = new SinkCounter(this.getName());
 
         partitionKey = (String) parameters.get(KafkaFlumeConstans.PARTITION_KEY_NAME);
-        encoding = StringUtils.defaultIfEmpty(
-                (String) this.parameters.get(KafkaFlumeConstans.ENCODING_KEY_NAME),
-                KafkaFlumeConstans.DEFAULT_ENCODING);
-        topic = Preconditions.checkNotNull(
-                (String) this.parameters.get(KafkaFlumeConstans.CUSTOME_TOPIC_KEY_NAME),
-                "custom.topic.name is required");
-
+        encoding = StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.ENCODING_KEY_NAME), KafkaFlumeConstans.DEFAULT_ENCODING);
+        topic = Preconditions.checkNotNull((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_TOPIC_KEY_NAME), "custom.topic.name is required");
         formatInJson = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_FORMAT_IN_JSON), "false"));
         logEvent = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.LOG_EVENT), "false"));
         batchSize = Integer.valueOf(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.FLUME_BATCH_SIZE), "200"));
@@ -148,7 +142,6 @@ public class KafkaSink extends AbstractSink implements Configurable {
 
 
             List<KeyedMessage<String, String>> msgList = new ArrayList<KeyedMessage<String, String>>();
-
 
             int i = 0;
             for (; i < batchSize; i++) {
@@ -197,6 +190,7 @@ public class KafkaSink extends AbstractSink implements Configurable {
     public void stop() {
         try {
             producer.close();
+            sinkCounter.incrementConnectionClosedCount();
             sinkCounter.stop();
         } catch (Exception e) {
             sinkCounter.incrementConnectionFailedCount();
