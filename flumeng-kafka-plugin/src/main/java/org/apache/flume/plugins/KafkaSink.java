@@ -106,6 +106,7 @@ public class KafkaSink extends AbstractSink implements Configurable {
         logEvent = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.LOG_EVENT), "false"));
         batchSize = Integer.valueOf(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.FLUME_BATCH_SIZE), "200"));
 
+
     }
 
     /**
@@ -118,6 +119,7 @@ public class KafkaSink extends AbstractSink implements Configurable {
         try {
             ProducerConfig config = new ProducerConfig(this.parameters);
             this.producer = new Producer<String, String>(config);
+
             sinkCounter.incrementConnectionCreatedCount();
             sinkCounter.start();
         } catch (Exception e) {
@@ -235,10 +237,10 @@ public class KafkaSink extends AbstractSink implements Configurable {
     }
 
     private void produceAndCommit(final List<KeyedMessage<String, String>> msgList, Transaction txn) {
-
-        for (KeyedMessage<String, String> msg : msgList) {
-            producer.send(msg);
-        }
+//        for (KeyedMessage<String, String> msg : msgList) {
+//            producer.send(msg);
+//        }
+        producer.send(msgList);
         txn.commit();
         sinkCounter.addToEventDrainSuccessCount(msgList.size());
 
