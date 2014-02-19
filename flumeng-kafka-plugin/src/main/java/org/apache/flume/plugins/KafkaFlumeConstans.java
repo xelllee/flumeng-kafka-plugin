@@ -46,7 +46,7 @@ public class KafkaFlumeConstans {
      */
     public static final String CUSTOME_CONSUMER_THREAD_COUNT_KEY_NAME = "custom.thread.per.consumer";
 
-    public static final String CUSTOME_FORMAT_IN_JSON = "custome.format.in.json";
+    public static final String CUSTOME_FORMAT_IN_JSON = "custom.format.in.json";
 
 
     public static final String LOG_EVENT = "custom.log.event";

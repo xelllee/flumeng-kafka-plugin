@@ -97,12 +97,13 @@ public class KafkaSink extends AbstractSink implements Configurable {
             this.parameters.put(key, value);
         }
 
+        //jmx metrics
         sinkCounter = new SinkCounter(this.getName());
 
         partitionKey = (String) parameters.get(KafkaFlumeConstans.PARTITION_KEY_NAME);
         encoding = StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.ENCODING_KEY_NAME), KafkaFlumeConstans.DEFAULT_ENCODING);
         topic = Preconditions.checkNotNull((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_TOPIC_KEY_NAME), "custom.topic.name is required");
-        formatInJson = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_FORMAT_IN_JSON), "false"));
+        formatInJson = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.CUSTOME_FORMAT_IN_JSON), "true"));
         logEvent = Boolean.parseBoolean(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.LOG_EVENT), "false"));
         batchSize = Integer.valueOf(StringUtils.defaultIfEmpty((String) this.parameters.get(KafkaFlumeConstans.FLUME_BATCH_SIZE), "100"));
 
@@ -145,7 +146,6 @@ public class KafkaSink extends AbstractSink implements Configurable {
 
             int i = 0;
             for (; i < batchSize; i++) {
-                // This try clause includes whatever Channel operations you want to do
                 Event event = ch.take();
 
                 if (event == null) {
@@ -235,9 +235,7 @@ public class KafkaSink extends AbstractSink implements Configurable {
     }
 
     private void produceAndCommit(final List<KeyedMessage<String, String>> msgList, Transaction txn) {
-//        for (KeyedMessage<String, String> msg : msgList) {
-//            producer.send(msg);
-//        }
+
         producer.send(msgList);
         txn.commit();
         sinkCounter.addToEventDrainSuccessCount(msgList.size());
